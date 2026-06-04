@@ -3,6 +3,7 @@ import { URL } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 
 function default_config() 
 {
@@ -77,18 +78,26 @@ class UserSession
     }
 }
 
+// Nuestra abstracción conveniente para SHA-256 en el Backend
+function createHashSHA256(cadena) {
+    return createHash('sha256').update(cadena).digest('hex');
+}
+
 
 function authenticate( username, password )
 {
     //Debe ir a la base de datos y buscar si existe un registro  username/password que coincide
     //Si es verdadero entonces significa que estoy autenticado, sino no.
 
+    // Convertimos la contraseña que el usuario escribe en el login a SHA-256
+    const loginPasswordHash = createHashSHA256(password);
+
     const sql = "SELECT count(*) as total FROM `user` WHERE username=? AND password=?";
 
     try 
     {
         const stmt = db.prepare(sql);
-        const row = stmt.get(username, password);
+        const row = stmt.get(username, loginPasswordHash);
             
         return (row.total === 1);
     } 
@@ -113,7 +122,7 @@ function authorize( username, endpointPath )
 
     try {
         const stmt = db.prepare(sql);
-        // Pasamos los parametros en orden
+        // Paso los parametros en orden
         const row = stmt.get(username, endpointPath);
 
         // Si el conteo es mayor a 0, tiene permiso
@@ -173,18 +182,22 @@ function logout(username, password)
 // Lógica de negocio
 async function createUser(db, username, password) 
 {
+
+    // Cifrado irreversible: Conversion de texto a hash SHA-256
+    const securePassword = createHashSHA256(password);
     const sql = "INSERT INTO user (username, password) VALUES (?, ?) RETURNING id";
 
     try 
     {
         const stmt = db.prepare(sql);
-        const row = stmt.get(username, password);
+        // Incersion del hash en la base de datos
+        const row = stmt.get(username, securePassword);
 
         const result = 
         {
             id: row.id,
             username: username,
-            password: password
+            password: securePassword // Retorna el hash generado para control del sistema
         };
         
         return result;
@@ -197,7 +210,6 @@ async function createUser(db, username, password)
 
 const db = connect_db(config.database.path);
 //const output = await createUser(db, 'test', '123456789');
-
 
 
 // Manejadores
