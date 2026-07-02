@@ -297,11 +297,21 @@ function show_message_handler(request, response)
 }
 
 function log_handler(request, response) {
+    if (request.method !== 'POST') {
+        response.writeHead(405, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ exception: 'MethodNotAllowed', detail: 'Las funciones RPC deben llamarse por POST.' }));
+        return;
+    }
     response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    response.end(JSON.stringify({ status: true, message: "¡Éxito! El endpoint log se ejecutó correctamente." }));
+    response.end(JSON.stringify({ status: true, message: "¡Éxito! El endpoint log se ejecutó correctamente en modo RPC." }));
 }
 
 function say_hello_handler(request, response) {
+    if (request.method !== 'POST') {
+        response.writeHead(405, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ exception: 'MethodNotAllowed', detail: 'Las funciones RPC deben llamarse por POST.' }));
+        return;
+    }
     response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     response.end(JSON.stringify({ status: true, message: "El autorizador falló" }));
 }
@@ -323,7 +333,11 @@ async function request_dispatcher(request, response)
     // Cabeceras para permitir que el frontend (u otros orígenes) consuma la API
     response.setHeader('Access-Control-Allow-Origin', '*');
     response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    // Cabeceras permitidas (Agregamos 'X-API-Version')
+    response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-user-id, x-api-key, X-API-Version');
+    
+    // REGLA RPC: Una cabecera adicional denotará la versión de la WebAPI
+    response.setHeader('X-API-Version', '1.0');
 
     // 2. Si el navegador mandó la petición (OPTIONS), se le responde un 204 (No Content)
     if (request.method === 'OPTIONS')
@@ -337,29 +351,30 @@ async function request_dispatcher(request, response)
     const url = new URL(request.url, 'http://' + config.server.ip);
     const path = url.pathname; 
 
-    // A. EXCEPCIÓN: Las rutas públicas de entrada ('/login' y '/register') 
+    // A. Excepcion: Las rutas públicas de entrada ('/login' y '/register') 
     // NO necesitan estar logueadas ni tener permisos. Pasan directo.
     if (path === '/login' || path === '/register') {
         const handler = router.get(path);
         if (handler) return await handler(request, response);
     }
 
-    // B. IDENTIFICACIÓN DE PRUEBA: Leemos qué usuario está intentando operar (?user=...)
-    const username = url.searchParams.get('user') || 'invitado';
+   // B. Identificacion de prueba
+    // Extraemos el usuario desde el sobre de la petición (Headers) en minúsculas
+    const username = request.headers['x-user-id'] || 'invitado';
+    const apiKey = request.headers['x-api-key']; // Registrada por si se utiliza más adelante
 
     // autenticacion: filtro de sesion activa en memoria
     // Buscamos en el Map si este usuario inició sesión y tiene un objeto en memoria
     const userSession = userSessions.get(username);
 
-    // Si no encontramos ninguna sesión, o el método isActive() de la clase da false: REBOTE 401
+    // Refactorizado RPC: Formato de excepción uniforme para el rebote 401
     if (userSession == null || !userSession.isActive()) {
         response.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
         response.end(JSON.stringify({ 
-            status: false, 
-            error: "No autenticado", 
-            message: `Acceso denegado. El usuario '${username}' debe iniciar sesión antes de ejecutar el endpoint ${path}` 
+            exception: 'UnauthorizedException', 
+            detail: `Acceso denegado. El usuario '${username}' debe iniciar sesión antes de ejecutar el procedimiento ${path}`
         }));
-        return; //No sigue procesando nada mas
+        return; 
     }
 
     
@@ -367,17 +382,15 @@ async function request_dispatcher(request, response)
     const pathLimpio = path.substring(1);
     const isAuthorized = authorize(username, pathLimpio);
 
-    // Si pasó el login pero el grupo no tiene asignado este endpoint en las tablas: REBOTE 403
+   // Refactorizado RPC: Formato de excepción uniforme para el rebote 403
     if (!isAuthorized) {
         response.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
         response.end(JSON.stringify({ 
-            status: false, 
-            error: "Acceso denegado", 
-            message: `El usuario '${username}' no tiene permisos para ejecutar el endpoint ${path}` 
+            exception: 'ForbiddenAccessException', 
+            detail: `El usuario '${username}' no tiene permisos asignados para ejecutar el procedimiento ${path}`
         }));
         return; 
     }
-
     // Si pasó los dos peajes (memoria y bd), ejecutamos el handler seguro
     const handler = router.get(path);
     if (handler) {

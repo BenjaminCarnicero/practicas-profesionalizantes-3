@@ -60,7 +60,7 @@
             }
         }
 
-        // CONTROLADOR DE LOGIN (Manda POST JSON)
+        // Controlador de login (Manda POST JSON - Sigue igual porque semánticamente maneja credenciales)
         function ejecutarLogin() {
             const username = txtUser.value;
             const password = txtPass.value;
@@ -83,27 +83,41 @@
             .catch(err => mostrarMensaje(500, "Error de red al intentar loguearse."));
         }
 
-        // CONTROLADOR DE PETICIONES (Manda el ?user=... para que el dispatcher sepa quién opera)
+        
+
+        // Controlador de peticiones (Estilo RPC)
         function consultarEndpoint(endpoint) {
             const usuarioActual = txtUser.value; 
 
-            mostrarMensaje(0, `Consultando ${endpoint} como '${usuarioActual}'...`);
+            mostrarMensaje(0, `Ejecutando procedimiento ${endpoint} como '${usuarioActual}'...`);
 
-            fetch(`http://localhost:3000${endpoint}?user=${usuarioActual}`)
-                .then(async response => {
-                    const data = await response.json();
-                    
-                    if (response.status === 200) {
-                        mostrarMensaje(200, `[200 OK] Éxito: ${data.message}`);
-                    } else if (response.status === 401) {
-                        mostrarMensaje(401, `[401 Bloqueado por memoria] ${data.message}`);
-                    } else if (response.status === 403) {
-                        mostrarMensaje(403, `[403 Bloqueado por base de datos] ${data.message}`);
-                    }
-                })
-                .catch(err => {
-            console.error(err);
-            mostrarMensaje(500, "Error: No se pudo conectar con el servidor.");
+            // Reglas RPC: Método POST obligatorio y cabecera de versión de API
+            fetch(`http://localhost:3000${endpoint}`, {
+                method: 'POST', 
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Version': '1.0',          // Cabecera de versión exigida
+                    'x-user-id': usuarioActual,      
+                    'x-api-key': 'clave_de_acceso'   
+                },
+                body: JSON.stringify({}) // RPC estable exige cuerpo JSON por POST, aunque vaya vacío
+            })
+            .then(async response => {
+                const data = await response.json();
+                
+                if (response.status === 200) {
+                    mostrarMensaje(200, `[200 OK] Éxito: ${data.message}`);
+                } 
+                // Si falla, el estandar de la materia ahora devuelve { exception, detail }
+                else if (response.status === 401) {
+                    mostrarMensaje(401, `[401 Bloqueado por memoria] Excepción: ${data.exception}. Detalle: ${data.detail}`);
+                } else if (response.status === 403) {
+                    mostrarMensaje(403, `[403 Bloqueado por base de datos] Excepción: ${data.exception}. Detalle: ${data.detail}`);
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                mostrarMensaje(500, "Error: No se pudo conectar con el servidor.");
             });
         }
 
