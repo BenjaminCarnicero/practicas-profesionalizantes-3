@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <title>Laboratorio: Autenticación y Autorización</title>
+        <style>
+            body { font-family: sans-serif; margin: 40px; background-color: #f4f4f9; color: #333; }
+            .box { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); max-width: 550px; margin-bottom: 20px; }
+            button { padding: 10px 15px; margin: 10px 5px; cursor: pointer; font-size: 14px; border-radius: 4px; border: 1px solid #ccc; font-weight: bold; }
+            input { padding: 6px; width: 90%; margin-top: 5px; margin-bottom: 12px; border: 1px solid #ccc; border-radius: 4px; }
+            #btnLog { background-color: #2bba5c; color: white; border: none; }
+            #btnHello { background-color: #e03b3b; color: white; border: none; }
+            #btnLogin { background-color: #007bff; color: white; border: none; width: 95%; }
+            #txtResultado { margin-top: 15px; padding: 12px; border-radius: 4px; font-weight: bold; border: 1px solid #ccc; background-color: #fafafa; min-height: 20px; }
+            .badge { display: inline-block; padding: 4px 8px; background: #ddd; border-radius: 4px; font-size: 12px; margin-bottom: 10px; font-weight: bold; }
+        </style>
+    </head>
+    <body>
+
+        <div class="box">
+            <span class="badge" style="background-color: #007bff; color: white;">CONSIGNA 2 (RAM)</span>
+            <h2>Formulario de Autenticación (Login)</h2>
+            <p>Iniciá sesión para registrar tu contexto de ejecución en la memoria RAM del servidor.</p>
+            
+            <label>Usuario:</label>
+            <input id="txtUser" value="admin">
+            
+            <label>Password:</label>
+            <input type="password" id="txtPass" value="1234">
+            
+            <button id="btnLogin">Iniciar Sesión (POST /login)</button>
+        </div>
+
+        <div class="box">
+            <span class="badge" style="background-color: #2bba5c; color: white;">CONSIGNA 1 (DB)</span>
+            <h2>Consumo de Endpoints Protegidos</h2>
+            <p>Probando accesos simulando el usuario actual en la URL.</p>
+
+            <button id="btnLog">Ejecutar /log (Permitido)</button>
+            <button id="btnHello">Ejecutar /sayHello (Denegado)</button>
+
+            <div id="txtResultado">Consola de respuestas del servidor...</div>
+        </div>
+
+    </body>
+
+    <script>
+        // Función auxiliar para actualizar el panel de respuestas de forma linda
+        function mostrarMensaje(status, texto) {
+            txtResultado.innerText = texto;
+            txtResultado.style.color = "white";
+            if (status === 200) {
+                txtResultado.style.backgroundColor = "#2bba5c"; // Verde exito
+            } else if (status === 401) {
+                txtResultado.style.backgroundColor = "#ff9800"; // Naranja no autenticado
+            } else if (status === 403) {
+                txtResultado.style.backgroundColor = "#e03b3b"; // Rojo denegado
+            } else {
+                txtResultado.style.backgroundColor = "#6c757d"; // Gris error de red
+            }
+        }
+
+        // Controlador de login (Manda POST JSON - Sigue igual porque semánticamente maneja credenciales)
+        function ejecutarLogin() {
+            const username = txtUser.value;
+            const password = txtPass.value;
+
+            mostrarMensaje(0, "Enviando credenciales...");
+
+            fetch('http://localhost:3000/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            })
+            .then(async response => {
+                const data = await response.json();
+                if (response.status === 200) {
+                    mostrarMensaje(200, `[200 OK] ¡Sesión creada en memoria para '${data.username}' (Estado: ${data.status})!`);
+                } else {
+                    mostrarMensaje(401, `[401 Error] Credenciales incorrectas.`);
+                }
+            })
+            .catch(err => mostrarMensaje(500, "Error de red al intentar loguearse."));
+        }
+
+        
+
+        // Controlador de peticiones (Estilo RPC)
+        function consultarEndpoint(endpoint) {
+            const usuarioActual = txtUser.value; 
+
+            mostrarMensaje(0, `Ejecutando procedimiento ${endpoint} como '${usuarioActual}'...`);
+
+            // Reglas RPC: Método POST obligatorio y cabecera de versión de API
+            fetch(`http://localhost:3000${endpoint}`, {
+                method: 'POST', 
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Version': '1.0',          // Cabecera de versión exigida
+                    'x-user-id': usuarioActual,      
+                    'x-api-key': 'clave_de_acceso'   
+                },
+                body: JSON.stringify({}) // RPC estable exige cuerpo JSON por POST, aunque vaya vacío
+            })
+            .then(async response => {
+                const data = await response.json();
+                
+                if (response.status === 200) {
+                    mostrarMensaje(200, `[200 OK] Éxito: ${data.message}`);
+                } 
+                // Si falla, el estandar de la materia ahora devuelve { exception, detail }
+                else if (response.status === 401) {
+                    mostrarMensaje(401, `[401 Bloqueado por memoria] Excepción: ${data.exception}. Detalle: ${data.detail}`);
+                } else if (response.status === 403) {
+                    mostrarMensaje(403, `[403 Bloqueado por base de datos] Excepción: ${data.exception}. Detalle: ${data.detail}`);
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                mostrarMensaje(500, "Error: No se pudo conectar con el servidor.");
+            });
+        }
+
+        function main() {
+            // eventos de los botones
+            btnLogin.onclick = ejecutarLogin;
+            btnLog.onclick = () => consultarEndpoint('/log');
+            btnHello.onclick = () => consultarEndpoint('/sayHello');
+        }
+
+        window.onload = main;
+    </script>
+</html>
