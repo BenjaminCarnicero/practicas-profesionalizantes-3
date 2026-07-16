@@ -14,22 +14,13 @@
             #txtResultado { margin-top: 15px; padding: 12px; border-radius: 4px; font-weight: bold; border: 1px solid #ccc; background-color: #fafafa; min-height: 20px; }
             .badge { display: inline-block; padding: 4px 8px; background: #ddd; border-radius: 4px; font-size: 12px; margin-bottom: 10px; font-weight: bold; }
         </style>
+
+        <script src="./components.js" defer></script>
     </head>
     <body>
 
-        <div class="box">
-            <span class="badge" style="background-color: #007bff; color: white;">CONSIGNA 2 (RAM)</span>
-            <h2>Formulario de Autenticación (Login)</h2>
-            <p>Iniciá sesión para registrar tu contexto de ejecución en la memoria RAM del servidor.</p>
-            
-            <label>Usuario:</label>
-            <input id="txtUser" value="admin">
-            
-            <label>Password:</label>
-            <input type="password" id="txtPass" value="1234">
-            
-            <button id="btnLogin">Iniciar Sesión (POST /login)</button>
-        </div>
+        <wc-login-form-view></wc-login-form-view>
+        <wc-register-form-view></wc-register-form-view>
 
         <div class="box">
             <span class="badge" style="background-color: #2bba5c; color: white;">CONSIGNA 1 (DB)</span>
@@ -60,73 +51,83 @@
             }
         }
 
-        // Controlador de login (Manda POST JSON - Sigue igual porque semánticamente maneja credenciales)
-        function ejecutarLogin() {
+       
+
+        async function RPCWebAPIFetch(name, content) {
+            const usuarioActual = txtUser.value; // Contexto del input de la interfaz
+
+            const response = await fetch(`http://localhost:3000${name}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Version': '1.0',
+                    'x-user-id': usuarioActual,
+                    'x-api-key': 'clave_de_acceso'
+                },
+                body: JSON.stringify(content)
+            });
+
+            // respuesta JSON del servidor
+            const data = await response.json();
+
+            // Si es exitoso (categoría 200), devuelve los datos directo
+            if (response.status === 200) {
+                return data;
+            }
+
+            // A excepción de 200, lanzamos excepciones personalizadas con la data del servidor
+            const errorPayload = {
+                status: response.status,
+                exception: data.exception || 'ErrorException',
+                detail: data.detail || data.error || 'Ocurrió un error inesperado.'
+            };
+
+            throw errorPayload;
+        }
+
+        // Controlador de login refactorizado usando RPCWebAPIFetch
+        async function ejecutarLogin() {
             const username = txtUser.value;
             const password = txtPass.value;
 
             mostrarMensaje(0, "Enviando credenciales...");
 
-            fetch('http://localhost:3000/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
-            })
-            .then(async response => {
-                const data = await response.json();
-                if (response.status === 200) {
-                    mostrarMensaje(200, `[200 OK] ¡Sesión creada en memoria para '${data.username}' (Estado: ${data.status})!`);
-                } else {
-                    mostrarMensaje(401, `[401 Error] Credenciales incorrectas.`);
-                }
-            })
-            .catch(err => mostrarMensaje(500, "Error de red al intentar loguearse."));
+            try {
+                // Pasamos la ruta '/login' y los datos en el content
+                const data = await RPCWebAPIFetch('/login', { username, password });
+                mostrarMensaje(200, `[200 OK] ¡Sesión creada en memoria para '${data.username}' (Estado: ${data.status})!`);
+            } catch (err) {
+                // Captura el objeto lanzado por la excepción de RPCWebAPIFetch
+                mostrarMensaje(err.status || 401, `[Error] No se pudo iniciar sesión. Detalle: ${err.detail || 'Credenciales incorrectas'}`);
+            }
         }
 
-        
-
-        // Controlador de peticiones (Estilo RPC)
-        function consultarEndpoint(endpoint) {
+        // Controlador de peticiones refactorizado con RPCWebAPIFetch
+        async function consultarEndpoint(endpoint) {
             const usuarioActual = txtUser.value; 
 
             mostrarMensaje(0, `Ejecutando procedimiento ${endpoint} como '${usuarioActual}'...`);
 
-            // Reglas RPC: Método POST obligatorio y cabecera de versión de API
-            fetch(`http://localhost:3000${endpoint}`, {
-                method: 'POST', 
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-API-Version': '1.0',          // Cabecera de versión exigida
-                    'x-user-id': usuarioActual,      
-                    'x-api-key': 'clave_de_acceso'   
-                },
-                body: JSON.stringify({}) // RPC estable exige cuerpo JSON por POST, aunque vaya vacío
-            })
-            .then(async response => {
-                const data = await response.json();
+            try {
                 
-                if (response.status === 200) {
-                    mostrarMensaje(200, `[200 OK] Éxito: ${data.message}`);
-                } 
-                // Si falla, el estandar de la materia ahora devuelve { exception, detail }
-                else if (response.status === 401) {
-                    mostrarMensaje(401, `[401 Bloqueado por memoria] Excepción: ${data.exception}. Detalle: ${data.detail}`);
-                } else if (response.status === 403) {
-                    mostrarMensaje(403, `[403 Bloqueado por base de datos] Excepción: ${data.exception}. Detalle: ${data.detail}`);
+                const data = await RPCWebAPIFetch(endpoint, {});
+                mostrarMensaje(200, `[200 OK] Éxito: ${data.message}`);
+            } catch (err) {
+                // Si falla (cualquier status que no sea 200), manejo de las excepciones
+                if (err.status === 401) {
+                    mostrarMensaje(401, `[401 Bloqueado por memoria] Excepción: ${err.exception}. Detalle: ${err.detail}`);
+                } else if (err.status === 403) {
+                    mostrarMensaje(403, `[403 Bloqueado por base de datos] Excepción: ${err.exception}. Detalle: ${err.detail}`);
+                } else {
+                    mostrarMensaje(err.status || 500, `[Error ${err.status}] Excepción: ${err.exception}. Detalle: ${err.detail}`);
                 }
-            })
-            .catch(err => {
-                console.error(err);
-                mostrarMensaje(500, "Error: No se pudo conectar con el servidor.");
-            });
+            }
         }
 
         function main() {
-            // eventos de los botones
-            btnLogin.onclick = ejecutarLogin;
-            btnLog.onclick = () => consultarEndpoint('/log');
-            btnHello.onclick = () => consultarEndpoint('/sayHello');
-        }
+    btnLog.onclick = consultarEndpoint.bind(null, '/log');
+    btnHello.onclick = consultarEndpoint.bind(null, '/sayHello');
+}
 
         window.onload = main;
     </script>
