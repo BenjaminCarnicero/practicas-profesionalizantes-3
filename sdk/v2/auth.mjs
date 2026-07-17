@@ -1,12 +1,13 @@
-// auth.mjs
+import { getDatabaseConnection } from './database.mjs';
 
 /**
- * Verifica si un usuario pertenece a un grupo que tiene acceso a un endpoint específico.
- * Cruza: user -> members -> group -> access -> endpoint
+ Verifica si un usuario pertenece a un grupo que tiene acceso a un endpoint específico.
+ Cruza: user -> members -> group -> access -> endpoint
  */
-// auth.mjs
-export function checkPermission(db, username, path, method) {
-    // Quitamos "e.method = ?" de la consulta para que el peaje sea más flexible
+export function checkPermission(username, path, method) {
+    const db = getDatabaseConnection();
+
+    // Consulta sql
     const sql = `
         SELECT 1 FROM user u
         JOIN members m ON u.id = m.id_user
@@ -16,30 +17,32 @@ export function checkPermission(db, username, path, method) {
         WHERE u.username = ? AND e.path = ?
     `;
 
-    return new Promise((resolve, reject) => {
-        // Ahora solo pasamos username y path
-        db.get(sql, [username, path], (err, row) => {
-            if (err) {
-                console.error("Error en SQL de permisos:", err);
-                return reject(err);
-            }
-            resolve(!!row);
-        });
-    });
+    try {
+        const query = db.prepare(sql);
+        const row = query.get(username, path);
+        return !!row; // Retorna true si encontró coincidencia (permiso concedido), o false si no
+    } catch (err) {
+        console.error("Error al verificar permisos en la base de datos:", err);
+        return false;
+    }
 }
 
-// Función para obtener los grupos de un usuario (útil para auditoría)
-export function getUserGroups(db, username) {
+// Obtiene los nombres de los grupos a los que pertenece un usuario
+export function getUserGroups(username) {
+    const db = getDatabaseConnection();
     const sql = `
         SELECT g.name FROM "group" g
-        JOIN members m ON g.id = m.group_id
-        JOIN user u ON m.user_id = u.id
+        JOIN members m ON g.id = m.id_group
+        JOIN user u ON m.id_user = u.id
         WHERE u.username = ?
     `;
-    return new Promise((resolve, reject) => {
-        db.all(sql, [username], (err, rows) => {
-            if (err) reject(err);
-            else resolve(rows.map(r => r.name));
-        });
-    });
+
+    try {
+        const query = db.prepare(sql);
+        const rows = query.all(username);
+        return rows.map(r => r.name);
+    } catch (err) {
+        console.error("Error al obtener grupos de usuario:", err);
+        return [];
+    }
 }

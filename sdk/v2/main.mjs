@@ -1,108 +1,106 @@
+// main.mjs
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
-import sqlite3 from 'sqlite3';
-import { resolve } from 'node:path';
+import { getDatabaseConnection } from './database.mjs';
 import { checkPermission } from './auth.mjs';
 import { 
     default_handler, 
-    register_handler, 
+    register_handler,
+    delete_user_handler,
+    create_group_handler,
+    delete_group_handler,
     assign_group_handler, 
     remove_group_handler, 
-    update_group_handler  } from './handlers.mjs';
+    update_group_handler 
+} from './handlers.mjs';
 
-
+// Leemos la configuración inicial
 const config = JSON.parse(readFileSync('./config.json', 'utf-8'));
 
 // conexion a base de datos
-const db = new sqlite3.Database(resolve(config.database.path));
+getDatabaseConnection();
 
-
-export function insertarUsuario(db, username, password) {
-  const sql = `INSERT INTO user (username, password) VALUES (?, ?)`;
-  return new Promise((resolve, reject) => {
-    db.run(sql, [username, password], function (err) {
-      if (err) return reject(err);
-      resolve({ id: this.lastID });
-    });
-  });
-}
-
-
-
+// Función auxiliar para simular el login manual de la v2
 function login(input) {
-  const userdata = { username: 'admin', password: '1234' };
-  if (input.username === userdata.username && input.password === userdata.password) {
-    return { status: true, result: input.username, description: null };
-  }
-  return { status: false, result: null, description: 'INVALID_USER_PASS' };
+    const userdata = { username: 'admin', password: '1234' };
+    if (input.username === userdata.username && input.password === userdata.password) {
+        return { status: true, result: input.username, description: null };
+    }
+    return { status: false, result: null, description: 'INVALID_USER_PASS' };
 }
 
-
+// Handler para el login (simulado)
 async function login_handler(request, response) {
-  const url = new URL(request.url, `http://${config.server.ip}`);
-  const input = Object.fromEntries(url.searchParams);
-  const output = login(input);
-  response.writeHead(200, { 'Content-Type': 'application/json' });
-  response.end(JSON.stringify(output));
+    const url = new URL(request.url, `http://${config.server.ip}`);
+    const input = Object.fromEntries(url.searchParams);
+    const output = login(input);
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify(output));
 }
 
-
-
+// Mapeo de rutas para el router (Todos los ABM requeridos)
 const router = new Map();
-router.set('/', (req, res) => default_handler(req, res, config));
+
+// Vistas y Auth Básica
+router.set('/', default_handler);
 router.set('/login', login_handler);
-router.set('/register', (req, res) => register_handler(req, res, db, insertarUsuario));
-// ... dentro del Map del router:
-router.set('/assign-group', (req, res) => assign_group_handler(req, res, db));
-router.set('/remove-group', (req, res) => remove_group_handler(req, res, db));
-router.set('/update-group', (req, res) => update_group_handler(req, res, db));
+
+// ABM Usuarios
+router.set('/register', register_handler);       // Alta usuario (POST)
+router.set('/delete-user', delete_user_handler); // Baja usuario (DELETE / POST)
+
+// ABM Grupos
+router.set('/create-group', create_group_handler); // Alta grupo (POST)
+router.set('/delete-group', delete_group_handler); // Baja grupo (DELETE / POST)
+
+// ABM Relaciones (Miembros de grupos)
+router.set('/assign-group', assign_group_handler); // Asignar (POST)
+router.set('/remove-group', remove_group_handler); // Remover (POST / GET)
+router.set('/update-group', update_group_handler); // Modificar (POST)
 
 
+// Despachador central de peticiones
 async function request_dispatcher(request, response) {
-  const url = new URL(request.url, `http://${config.server.ip}`);
-  const path = url.pathname;
-  const method = request.method;
+    const url = new URL(request.url, `http://${config.server.ip}`);
+    const path = url.pathname;
+    const method = request.method;
 
-  // 1. Simulación de usuario (Punto clave para la v2)
-  // Como todavía no hay JWT, leemos un usuario de la URL o usamos 'guest'
-  const username = url.searchParams.get('user') || 'guest';
+    //Simulación de usuario para el peaje
+    const username = url.searchParams.get('user') || 'guest';
 
-  try {
-    // 2. Verificación de permisos (El "Peaje")
-    // Solo verificamos para rutas que no sean la raíz o el login
-    if (path !== '/' && path !== '/login') {
-      const hasPermission = await checkPermission(db, username, path, method);
+    try {
+        // Peaje de verificación de permisos
+        if (path !== '/' && path !== '/login') {
+            const hasPermission = checkPermission(username, path, method);
 
-      if (!hasPermission) {
-          response.writeHead(403, { 'Content-Type': 'application/json' });
-          return response.end(JSON.stringify({ 
-              status: false, 
-              error: 'Acceso denegado', 
-              message: `El usuario ${username} no tiene permiso para ${path} [${method}]` 
-          }));
-      }
+            if (!hasPermission) {
+                response.writeHead(403, { 'Content-Type': 'application/json' });
+                return response.end(JSON.stringify({ 
+                    status: false, 
+                    error: 'Acceso denegado', 
+                    message: `El usuario ${username} no tiene permiso para ${path} [${method}]` 
+                }));
+            }
+        }
+
+        // Ejecución del Handler correspondiente
+        const handler = router.get(path);
+
+        if (handler) {
+            await handler(request, response);
+        } else {
+            response.writeHead(404, { 'Content-Type': 'application/json' });
+            response.end(JSON.stringify({ status: false, error: 'Ruta no encontrada' }));
+        }
+
+    } catch (error) {
+        console.error("Error en el dispatcher central:", error);
+        response.writeHead(500, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: false, error: 'Error interno del servidor' }));
     }
-
-    // 3. Ejecución del Handler (Si pasó el peaje)
-    const handler = router.get(path);
-
-    if (handler) {
-      await handler(request, response);
-    } else {
-      response.writeHead(404);
-      response.end('Ruta no encontrada');
-    }
-
-  } catch (error) {
-    console.error("Error en el dispatcher:", error);
-    response.writeHead(500);
-    response.end('Error interno de servidor');
-  }
 }
 
-
-
-
+// Inicialización del servidor
 createServer(request_dispatcher).listen(config.server.port, config.server.ip, () => {
-  console.log(`Servidor v1 en http://${config.server.ip}:${config.server.port}`);
+    console.log(`Servidor v2 corregido corriendo en http://${config.server.ip}:${config.server.port}`);
 });

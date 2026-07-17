@@ -1,139 +1,252 @@
 import { readFileSync } from 'node:fs';
+import { 
+    dbInsertarUsuario, 
+    dbEliminarUsuario,
+    dbCrearGrupo, 
+    dbEliminarGrupo, 
+    dbAsignarUsuarioAGrupo, 
+    dbQuitarUsuarioDeGrupo, 
+    dbActualizarGrupoDeUsuario 
+} from './model.mjs';
 
-
-export function default_handler(request, response, config) {
+// Vista principal
+export function default_handler(request, response) {
     try {
-        // config por parametro
+        const config = JSON.parse(readFileSync('./config.json', 'utf-8'));
         const html = readFileSync(config.server.default_path, 'utf-8');
         response.writeHead(200, { 'Content-Type': 'text/html' });
         response.end(html);
     } catch (error) {
-        response.writeHead(500);
-        response.end('Error interno: No se pudo cargar la vista principal.');
+        response.writeHead(500, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: false, error: 'No se pudo cargar la vista principal.' }));
     }
 }
 
-export async function register_handler(request, response, db, insertarUsuario) {
+// Helper para parsear de manera simple el body de peticiones POST/PUT
+function parseBody(request) {
+    return new Promise((resolve, reject) => {
+        let body = '';
+        request.on('data', chunk => { body += chunk.toString(); });
+        request.on('end', () => resolve(new URLSearchParams(body)));
+        request.on('error', err => reject(err));
+    });
+}
+
+// ABM de usuarios
+
+// Crear usuario
+export async function register_handler(request, response) {
     if (request.method !== 'POST') {
-        response.writeHead(405, { 'Content-Type': 'text/plain' });
-        response.end('Método no permitido. Use POST.');
-        return;
+        response.writeHead(405, { 'Content-Type': 'application/json' });
+        return response.end(JSON.stringify({ status: false, error: 'Método no permitido. Use POST.' }));
     }
 
-    let body = '';
-    request.on('data', (chunk) => {
-        body += chunk.toString();
-    });
+    try {
+        const params = await parseBody(request);
+        const username = params.get('username');
+        const password = params.get('password');
 
-    request.on('end', async () => {
-        try {
-            const params = new URLSearchParams(body);
-            const username = params.get('username');
-            const password = params.get('password');
-
-            if (!username || !password) {
-                throw new Error('Faltan datos obligatorios');
-            }
-
-            // funcion incersion viene por parametro
-            const resultado = await insertarUsuario(db, username, password);
-
-            const output = {
-                status: true,
-                result: username,
-                id: resultado.id,
-                description: 'USER_CREATED_BY_POST'
-            };
-
-            response.writeHead(200, { 'Content-Type': 'application/json' });
-            response.end(JSON.stringify(output));
-
-        } catch (error) {
+        if (!username || !password) {
             response.writeHead(400, { 'Content-Type': 'application/json' });
-            response.end(JSON.stringify({ 
-                status: false, 
-                description: 'ERROR_PROCESSING_POST',
-                message: error.message 
-            }));
+            return response.end(JSON.stringify({ status: false, error: 'Faltan parámetros: username y password son obligatorios' }));
         }
-    });
+
+        const resultado = dbInsertarUsuario(username, password);
+
+        response.writeHead(201, { 'Content-Type': 'application/json' }); // 210 Created es el correcto para alta
+        response.end(JSON.stringify({
+            status: true,
+            result: username,
+            id: resultado.id,
+            description: 'USER_CREATED_BY_POST'
+        }));
+    } catch (error) {
+        response.writeHead(400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: false, error: error.message }));
+    }
 }
 
-
-// --- ALTA: Vincular usuario a grupo (Tabla members) ---
-export async function assign_group_handler(request, response, db) {
-    if (request.method !== 'POST') {
-        response.writeHead(405);
-        return response.end('Método no permitido. Use POST.');
+// Eliminar un usuario
+export async function delete_user_handler(request, response) {
+    if (request.method !== 'DELETE' && request.method !== 'POST') {
+        response.writeHead(405, { 'Content-Type': 'application/json' });
+        return response.end(JSON.stringify({ status: false, error: 'Método no permitido. Use DELETE (o POST).' }));
     }
 
-    let body = '';
-    request.on('data', chunk => { body += chunk.toString(); });
-    request.on('end', async () => {
-        try {
-            const params = new URLSearchParams(body);
-            const id_user = params.get('id_user');
-            const id_group = params.get('id_group');
-
-            const sql = `INSERT INTO members (id_user, id_group) VALUES (?, ?)`;
-            
-            db.run(sql, [id_user, id_group], function(err) {
-                if (err) throw err;
-                response.writeHead(200, { 'Content-Type': 'application/json' });
-                response.end(JSON.stringify({ status: true, message: 'Usuario asignado al grupo' }));
-            });
-        } catch (error) {
-            response.writeHead(500, { 'Content-Type': 'application/json' });
-            response.end(JSON.stringify({ status: false, error: error.message }));
+    try {
+        let id_user;
+        if (request.method === 'POST') {
+            const params = await parseBody(request);
+            id_user = params.get('id_user');
+        } else {
+            const url = new URL(request.url, `http://${request.headers.host}`);
+            id_user = url.searchParams.get('id_user');
         }
-    });
-}
 
-
-// --- BAJA: Quitar usuario de un grupo ---
-export async function remove_group_handler(request, response, db) {
-    // Usamos GET con parámetros en la URL para la baja rápida
-    const url = new URL(request.url, `http://${request.headers.host}`);
-    const id_user = url.searchParams.get('id_user');
-    const id_group = url.searchParams.get('id_group');
-
-    const sql = `DELETE FROM members WHERE id_user = ? AND id_group = ?`;
-
-    db.run(sql, [id_user, id_group], function(err) {
-        if (err) {
-            response.writeHead(500);
-            return response.end(JSON.stringify({ status: false, error: err.message }));
+        if (!id_user) {
+            response.writeHead(400, { 'Content-Type': 'application/json' });
+            return response.end(JSON.stringify({ status: false, error: 'Falta parámetro obligatorio: id_user' }));
         }
+
+        const cambios = dbEliminarUsuario(id_user);
+
         response.writeHead(200, { 'Content-Type': 'application/json' });
-        response.end(JSON.stringify({ status: true, removed_count: this.changes }));
-    });
+        response.end(JSON.stringify({ status: true, removed_count: cambios }));
+    } catch (error) {
+        response.writeHead(400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: false, error: error.message }));
+    }
 }
 
 
-// --- MODIFICACIÓN: Actualizar el grupo de un usuario ---
-export async function update_group_handler(request, response, db) {
+// ABM de grupos
+
+// Crear un grupo
+export async function create_group_handler(request, response) {
     if (request.method !== 'POST') {
-        response.writeHead(405);
-        return response.end('Use POST para modificar');
+        response.writeHead(405, { 'Content-Type': 'application/json' });
+        return response.end(JSON.stringify({ status: false, error: 'Método no permitido. Use POST.' }));
     }
 
-    let body = '';
-    request.on('data', chunk => { body += chunk.toString(); });
-    request.on('end', () => {
-        const params = new URLSearchParams(body);
+    try {
+        const params = await parseBody(request);
+        const name = params.get('name');
+
+        if (!name) {
+            response.writeHead(400, { 'Content-Type': 'application/json' });
+            return response.end(JSON.stringify({ status: false, error: 'Falta parámetro obligatorio: name' }));
+        }
+
+        const resultado = dbCrearGrupo(name);
+
+        response.writeHead(210, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: true, id: resultado.id, name }));
+    } catch (error) {
+        response.writeHead(400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: false, error: error.message }));
+    }
+}
+
+// Eliminar un grupo
+export async function delete_group_handler(request, response) {
+    if (request.method !== 'DELETE' && request.method !== 'POST') {
+        response.writeHead(405, { 'Content-Type': 'application/json' });
+        return response.end(JSON.stringify({ status: false, error: 'Método no permitido. Use DELETE (o POST).' }));
+    }
+
+    try {
+        let id_group;
+        if (request.method === 'POST') {
+            const params = await parseBody(request);
+            id_group = params.get('id_group');
+        } else {
+            const url = new URL(request.url, `http://${request.headers.host}`);
+            id_group = url.searchParams.get('id_group');
+        }
+
+        if (!id_group) {
+            response.writeHead(400, { 'Content-Type': 'application/json' });
+            return response.end(JSON.stringify({ status: false, error: 'Falta parámetro obligatorio: id_group' }));
+        }
+
+        const cambios = dbEliminarGrupo(id_group);
+
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: true, removed_count: cambios }));
+    } catch (error) {
+        response.writeHead(400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: false, error: error.message }));
+    }
+}
+
+
+// Asignacion/gestion de miembros en grupos
+
+// Vincular usuario a grupo (Alta de miembro)
+export async function assign_group_handler(request, response) {
+    if (request.method !== 'POST') {
+        response.writeHead(405, { 'Content-Type': 'application/json' });
+        return response.end(JSON.stringify({ status: false, error: 'Método no permitido. Use POST.' }));
+    }
+
+    try {
+        const params = await parseBody(request);
+        const id_user = params.get('id_user');
+        const id_group = params.get('id_group');
+
+        if (!id_user || !id_group) {
+            response.writeHead(400, { 'Content-Type': 'application/json' });
+            return response.end(JSON.stringify({ status: false, error: 'Faltan parámetros obligatorios: id_user e id_group' }));
+        }
+
+        dbAsignarUsuarioAGrupo(id_user, id_group);
+
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: true, message: 'Usuario asignado al grupo con éxito' }));
+    } catch (error) {
+        response.writeHead(400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: false, error: error.message }));
+    }
+}
+
+// Eliminar usuario de un grupo (Baja de miembro)
+export async function remove_group_handler(request, response) {
+    // Si es POST, lee del body, sino lee de los Query Params de la URL
+    try {
+        let id_user, id_group;
+
+        if (request.method === 'POST') {
+            const params = await parseBody(request);
+            id_user = params.get('id_user');
+            id_group = params.get('id_group');
+        } else {
+            const url = new URL(request.url, `http://${request.headers.host}`);
+            id_user = url.searchParams.get('id_user');
+            id_group = url.searchParams.get('id_group');
+        }
+
+        if (!id_user || !id_group) {
+            response.writeHead(400, { 'Content-Type': 'application/json' });
+            return response.end(JSON.stringify({ status: false, error: 'Faltan parámetros obligatorios: id_user e id_group' }));
+        }
+
+        const cambios = dbQuitarUsuarioDeGrupo(id_user, id_group);
+
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: true, removed_count: cambios }));
+    } catch (error) {
+        response.writeHead(400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: false, error: error.message }));
+    }
+}
+
+// Modificar el grupo de un usuario (Modificación)
+export async function update_group_handler(request, response) {
+    if (request.method !== 'POST') {
+        response.writeHead(405, { 'Content-Type': 'application/json' });
+        return response.end(JSON.stringify({ status: false, error: 'Metodo no permitido. Use POST.' }));
+    }
+
+    try {
+        const params = await parseBody(request);
         const id_user = params.get('id_user');
         const old_id_group = params.get('old_id_group');
         const new_id_group = params.get('new_id_group');
 
-        const sql = `UPDATE members SET id_group = ? WHERE id_user = ? AND id_group = ?`;
+        if (!id_user || !old_id_group || !new_id_group) {
+            response.writeHead(400, { 'Content-Type': 'application/json' });
+            return response.end(JSON.stringify({ 
+                status: false, 
+                error: 'Faltan parámetros obligatorios: id_user, old_id_group y new_id_group' 
+            }));
+        }
 
-        db.run(sql, [new_id_group, id_user, old_id_group], function(err) {
-            if (err) {
-                response.writeHead(500);
-                return response.end(JSON.stringify({ status: false, error: err.message }));
-            }
-            response.writeHead(200, { 'Content-Type': 'application/json' });
-            response.end(JSON.stringify({ status: true, updated: this.changes }));
-        });
-    });
+        const cambios = dbActualizarGrupoDeUsuario(id_user, old_id_group, new_id_group);
+
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: true, updated: cambios }));
+    } catch (error) {
+        response.writeHead(400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: false, error: error.message }));
+    }
 }
