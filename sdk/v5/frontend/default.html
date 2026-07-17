@@ -2,36 +2,69 @@
 <html lang="es">
     <head>
         <meta charset="UTF-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+        <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Laboratorio: Autenticación y Autorización</title>
+
+       <!-- Fuentes e Iconos de assets -->
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+        <link rel="stylesheet" href="./assets/icons/font-awesome-4.7.0/css/font-awesome.min.css">
+        <link rel="stylesheet" href="./assets/css/w3pro-4.13.css">
+        <link rel="stylesheet" href="./assets/css/w3-theme.css">
+        <link rel="stylesheet" href="./assets/css/admin-styles.css">
+        
+        <!-- 2. Estilos específicos para centrar el login y registro -->
         <style>
-            body { font-family: sans-serif; margin: 40px; background-color: #f4f4f9; color: #333; }
-            .box { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); max-width: 550px; margin-bottom: 20px; }
-            button { padding: 10px 15px; margin: 10px 5px; cursor: pointer; font-size: 14px; border-radius: 4px; border: 1px solid #ccc; font-weight: bold; }
-            input { padding: 6px; width: 90%; margin-top: 5px; margin-bottom: 12px; border: 1px solid #ccc; border-radius: 4px; }
-            #btnLog { background-color: #2bba5c; color: white; border: none; }
-            #btnHello { background-color: #e03b3b; color: white; border: none; }
-            #btnLogin { background-color: #007bff; color: white; border: none; width: 95%; }
-            #txtResultado { margin-top: 15px; padding: 12px; border-radius: 4px; font-weight: bold; border: 1px solid #ccc; background-color: #fafafa; min-height: 20px; }
-            .badge { display: inline-block; padding: 4px 8px; background: #ddd; border-radius: 4px; font-size: 12px; margin-bottom: 10px; font-weight: bold; }
+            /* Contenedor principal centrado en pantalla */
+            .main-container {
+                max-width: 1000px; 
+                margin: 0 auto;
+                padding: 0 16px;  
+            }
+
+            .login-wrapper {
+                max-width: 450px;
+                margin: 0 auto 32px auto;
+            }
+
+           
+            .register-wrapper {
+                width: 100%;
+                margin-bottom: 32px;
+            }
         </style>
 
+        >
         <script src="./components.js" defer></script>
     </head>
     <body>
 
-        <wc-login-form-view></wc-login-form-view>
-        <wc-register-form-view></wc-register-form-view>
+        
+        <div class="main-container">
 
-        <div class="box">
-            <span class="badge" style="background-color: #2bba5c; color: white;">CONSIGNA 1 (DB)</span>
-            <h2>Consumo de Endpoints Protegidos</h2>
-            <p>Probando accesos simulando el usuario actual en la URL.</p>
+            <!-- Tarjeta de Login-->
+            <div class="login-wrapper">
+                <wc-login-form-view id="loginComponent"></wc-login-form-view>
+            </div>
 
-            <button id="btnLog">Ejecutar /log (Permitido)</button>
-            <button id="btnHello">Ejecutar /sayHello (Denegado)</button>
+            <!-- Formulario de Registro -->
+            <div class="register-wrapper">
+                <wc-register-form-view></wc-register-form-view>
+            </div>
 
-            <div id="txtResultado">Consola de respuestas del servidor...</div>
+            <div>
+                <span class="custom-badge" style="background-color: #2bba5c; color: white;">CONSIGNA 1 (DB)</span>
+                <h2>Consumo de Endpoints Protegidos</h2>
+                <p>Probando accesos simulando el usuario actual en la URL.</p>
+
+                <button id="btnLog" class="panel-btn">Ejecutar /log (Permitido)</button>
+                <button id="btnHello" class="panel-btn">Ejecutar /sayHello (Denegado)</button>
+
+                <div id="txtResultado">Consola de respuestas del servidor...</div>
+            </div>
+
         </div>
+        
 
     </body>
 
@@ -51,10 +84,26 @@
             }
         }
 
-       
+        // Función para obtener el input de usuario desde adentro del WebComponent
+        function obtenerUsuarioActual() {
+            const loginComp = document.getElementById('loginComponent');
+            if (loginComp && loginComp.usernameInput) {
+                return loginComp.usernameInput.value;
+            }
+            return '';
+        }
+
+        // Función para obtener la contrasenia desde adentro del WebComponent
+        function obtenerPasswordActual() {
+            const loginComp = document.getElementById('loginComponent');
+            if (loginComp && loginComp.passwordInput) {
+                return loginComp.passwordInput.value;
+            }
+            return '';
+        }
 
         async function RPCWebAPIFetch(name, content) {
-            const usuarioActual = txtUser.value; // Contexto del input de la interfaz
+            const usuarioActual = obtenerUsuarioActual(); // Obtenido de forma segura desde el componente
 
             const response = await fetch(`http://localhost:3000${name}`, {
                 method: 'POST',
@@ -87,8 +136,8 @@
 
         // Controlador de login refactorizado usando RPCWebAPIFetch
         async function ejecutarLogin() {
-            const username = txtUser.value;
-            const password = txtPass.value;
+            const username = obtenerUsuarioActual();
+            const password = obtenerPasswordActual();
 
             mostrarMensaje(0, "Enviando credenciales...");
 
@@ -102,14 +151,16 @@
             }
         }
 
+        // Para que el componente la encuentre en el objeto global "window"
+        window.ejecutarLogin = ejecutarLogin;
+
         // Controlador de peticiones refactorizado con RPCWebAPIFetch
         async function consultarEndpoint(endpoint) {
-            const usuarioActual = txtUser.value; 
+            const usuarioActual = obtenerUsuarioActual(); 
 
             mostrarMensaje(0, `Ejecutando procedimiento ${endpoint} como '${usuarioActual}'...`);
 
             try {
-                
                 const data = await RPCWebAPIFetch(endpoint, {});
                 mostrarMensaje(200, `[200 OK] Éxito: ${data.message}`);
             } catch (err) {
@@ -125,9 +176,9 @@
         }
 
         function main() {
-    btnLog.onclick = consultarEndpoint.bind(null, '/log');
-    btnHello.onclick = consultarEndpoint.bind(null, '/sayHello');
-}
+            btnLog.onclick = consultarEndpoint.bind(null, '/log');
+            btnHello.onclick = consultarEndpoint.bind(null, '/sayHello');
+        }
 
         window.onload = main;
     </script>
