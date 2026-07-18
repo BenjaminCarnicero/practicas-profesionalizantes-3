@@ -6,7 +6,11 @@ import {
     dbEliminarGrupo, 
     dbAsignarUsuarioAGrupo, 
     dbQuitarUsuarioDeGrupo, 
-    dbActualizarGrupoDeUsuario 
+    dbActualizarGrupoDeUsuario,
+    dbCrearPermiso,       
+    dbEliminarPermiso,    
+    dbAsignarPermisoAGrupo, 
+    dbQuitarPermisoDeGrupo  
 } from './model.mjs';
 
 // Vista principal
@@ -245,6 +249,127 @@ export async function update_group_handler(request, response) {
 
         response.writeHead(200, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ status: true, updated: cambios }));
+    } catch (error) {
+        response.writeHead(400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: false, error: error.message }));
+    }
+}
+
+
+// ABM de Permisos (Endpoints)
+
+// Crear un permiso (endpoint)
+export async function create_permission_handler(request, response) {
+    if (request.method !== 'POST') {
+        response.writeHead(405, { 'Content-Type': 'application/json' });
+        return response.end(JSON.stringify({ status: false, error: 'Metodo no permitido. Use POST.' }));
+    }
+
+    try {
+        const params = await parseBody(request);
+        const path = params.get('path'); //path de la bd
+        const method = params.get('method'); 
+
+        if (!path || !method) {
+            response.writeHead(400, { 'Content-Type': 'application/json' });
+            return response.end(JSON.stringify({ status: false, error: 'Faltan parámetros obligatorios: path y method' }));
+        }
+
+        const resultado = dbCrearPermiso(path, method);
+
+        response.writeHead(210, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: true, id: resultado.id, path, method }));
+    } catch (error) {
+        response.writeHead(400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: false, error: error.message }));
+    }
+}
+
+// Eliminar un permiso (endpoint)
+export async function delete_permission_handler(request, response) {
+    if (request.method !== 'DELETE' && request.method !== 'POST') {
+        response.writeHead(405, { 'Content-Type': 'application/json' });
+        return response.end(JSON.stringify({ status: false, error: 'Método no permitido. Use DELETE (o POST).' }));
+    }
+
+    try {
+        let id_endpoint;
+        if (request.method === 'POST') {
+            const params = await parseBody(request);
+            id_endpoint = params.get('id_endpoint');
+        } else {
+            const url = new URL(request.url, `http://${request.headers.host}`);
+            id_endpoint = url.searchParams.get('id_endpoint');
+        }
+
+        if (!id_endpoint) {
+            response.writeHead(400, { 'Content-Type': 'application/json' });
+            return response.end(JSON.stringify({ status: false, error: 'Falta parámetro obligatorio: id_endpoint' }));
+        }
+
+        const cambios = dbEliminarPermiso(id_endpoint);
+
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: true, removed_count: cambios }));
+    } catch (error) {
+        response.writeHead(400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: false, error: error.message }));
+    }
+}
+
+
+// Vinculación de Permisos a grupos (access)
+// Asignar permiso a grupo
+export async function assign_permission_handler(request, response) {
+    if (request.method !== 'POST') {
+        response.writeHead(405, { 'Content-Type': 'application/json' });
+        return response.end(JSON.stringify({ status: false, error: 'Método no permitido. Use POST.' }));
+    }
+
+    try {
+        const params = await parseBody(request);
+        const id_group = params.get('id_group');
+        const id_endpoint = params.get('id_endpoint');
+
+        if (!id_group || !id_endpoint) {
+            response.writeHead(400, { 'Content-Type': 'application/json' });
+            return response.end(JSON.stringify({ status: false, error: 'Faltan parámetros obligatorios: id_group e id_endpoint' }));
+        }
+
+        dbAsignarPermisoAGrupo(id_group, id_endpoint);
+
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: true, message: 'Permiso vinculado al grupo con éxito en tabla access' }));
+    } catch (error) {
+        response.writeHead(400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: false, error: error.message }));
+    }
+}
+
+// Quitar el permiso de un grupo
+export async function remove_permission_handler(request, response) {
+    try {
+        let id_group, id_endpoint;
+
+        if (request.method === 'POST') {
+            const params = await parseBody(request);
+            id_group = params.get('id_group');
+            id_endpoint = params.get('id_endpoint');
+        } else {
+            const url = new URL(request.url, `http://${request.headers.host}`);
+            id_group = url.searchParams.get('id_group');
+            id_endpoint = url.searchParams.get('id_endpoint');
+        }
+
+        if (!id_group || !id_endpoint) {
+            response.writeHead(400, { 'Content-Type': 'application/json' });
+            return response.end(JSON.stringify({ status: false, error: 'Faltan parámetros obligatorios: id_group e id_endpoint' }));
+        }
+
+        const cambios = dbQuitarPermisoDeGrupo(id_group, id_endpoint);
+
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: true, removed_count: cambios }));
     } catch (error) {
         response.writeHead(400, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ status: false, error: error.message }));

@@ -11,7 +11,11 @@ import {
     delete_group_handler,
     assign_group_handler, 
     remove_group_handler, 
-    update_group_handler 
+    update_group_handler,
+    create_permission_handler,  
+    delete_permission_handler,  
+    assign_permission_handler,  
+    remove_permission_handler   
 } from './handlers.mjs';
 
 // Leemos la configuración inicial
@@ -58,6 +62,14 @@ router.set('/assign-group', assign_group_handler); // Asignar (POST)
 router.set('/remove-group', remove_group_handler); // Remover (POST / GET)
 router.set('/update-group', update_group_handler); // Modificar (POST)
 
+// ABM Permisos (Endpoints)
+router.set('/create-permission', create_permission_handler); 
+router.set('/delete-permission', delete_permission_handler); 
+
+// ABM Relaciones (Permisos de los grupos en la tabla access)
+router.set('/assign-permission', assign_permission_handler); 
+router.set('/remove-permission', remove_permission_handler);
+
 
 // Despachador central de peticiones
 async function request_dispatcher(request, response) {
@@ -102,5 +114,5 @@ async function request_dispatcher(request, response) {
 
 // Inicialización del servidor
 createServer(request_dispatcher).listen(config.server.port, config.server.ip, () => {
-    console.log(`Servidor v2 corregido corriendo en http://${config.server.ip}:${config.server.port}`);
+    console.log(`Servidor v2 corriendo en http://${config.server.ip}:${config.server.port}`);
 });
